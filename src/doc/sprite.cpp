@@ -1,5 +1,5 @@
 // Aseprite Document Library
-// Copyright (C) 2018-2022  Igara Studio S.A.
+// Copyright (C) 2018-2023  Igara Studio S.A.
 // Copyright (C) 2001-2018  David Capello
 //
 // This file is released under the terms of the MIT license.
@@ -22,6 +22,7 @@
 #include "doc/palette.h"
 #include "doc/primitives.h"
 #include "doc/remap.h"
+#include "doc/render_plan.h"
 #include "doc/rgbmap_rgb5a3.h"
 #include "doc/tag.h"
 #include "doc/tilesets.h"
@@ -226,8 +227,10 @@ void Sprite::setTransparentColor(color_t color)
 
   // Transform the empty tile of all tilemaps
   if (hasTilesets()) {
-    for (Tileset* tileset : *tilesets())
-      tileset->notifyRegenerateEmptyTile();
+    for (Tileset* tileset : *tilesets()) {
+      if (tileset)
+        tileset->notifyRegenerateEmptyTile();
+    }
   }
 }
 
@@ -501,6 +504,9 @@ ImageRef Sprite::getImageRef(ObjectId imageId)
   }
   if (hasTilesets()) {
     for (Tileset* tileset : *tilesets()) {
+      if (!tileset)
+        continue;
+
       for (tile_index i=0; i<tileset->size(); ++i) {
         ImageRef image = tileset->get(i);
         if (image && image->id() == imageId)
@@ -532,6 +538,9 @@ void Sprite::replaceImage(ObjectId curImageId, const ImageRef& newImage)
 
   if (hasTilesets()) {
     for (Tileset* tileset : *tilesets()) {
+      if (!tileset)
+        continue;
+
       for (tile_index i=0; i<tileset->size(); ++i) {
         ImageRef image = tileset->get(i);
         if (image && image->id() == curImageId) {
@@ -568,6 +577,9 @@ void Sprite::getImages(std::vector<ImageRef>& images) const
 
   if (hasTilesets()) {
     for (Tileset* tileset : *tilesets()) {
+      if (!tileset)
+        continue;
+
       for (tile_index i=0; i<tileset->size(); ++i) {
         ImageRef image = tileset->get(i);
         if (image)
@@ -613,19 +625,16 @@ void Sprite::remapTilemaps(const Tileset* tileset,
 //////////////////////////////////////////////////////////////////////
 // Drawing
 
-void Sprite::pickCels(const double x,
-                      const double y,
-                      const frame_t frame,
+void Sprite::pickCels(const gfx::PointF& pos,
                       const int opacityThreshold,
-                      const LayerList& layers,
+                      const RenderPlan& plan,
                       CelList& cels) const
 {
-  gfx::PointF pos(x, y);
-
-  for (int i=(int)layers.size()-1; i>=0; --i) {
-    const Layer* layer = layers[i];
-
-    Cel* cel = layer->cel(frame);
+  // Iterate cels in reversed order (from the front-most to the
+  // bottom-most) so we pick first visible cel in the given position.
+  const auto& planItems = plan.items();
+  for (auto it=planItems.rbegin(), end=planItems.rend(); it!=end; ++it) {
+    const Cel* cel = it->cel;
     if (!cel)
       continue;
 
@@ -692,7 +701,7 @@ void Sprite::pickCels(const double x,
     if (!isOpaque)
       continue;
 
-    cels.push_back(cel);
+    cels.push_back(const_cast<Cel*>(cel));
   }
 }
 
@@ -727,6 +736,13 @@ LayerList Sprite::allBrowsableLayers() const
   return list;
 }
 
+LayerList Sprite::allTilemaps() const
+{
+  LayerList list;
+  m_root->allTilemaps(list);
+  return list;
+}
+
 CelsRange Sprite::cels() const
 {
   SelectedFrames selFrames;
@@ -739,6 +755,11 @@ CelsRange Sprite::cels(frame_t frame) const
   SelectedFrames selFrames;
   selFrames.insert(frame);
   return CelsRange(this, selFrames);
+}
+
+CelsRange Sprite::cels(const SelectedFrames& selFrames) const
+{
+  return CelsRange(this, selFrames, CelsRange::ALL);
 }
 
 CelsRange Sprite::uniqueCels() const

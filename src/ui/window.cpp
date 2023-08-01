@@ -1,5 +1,5 @@
 // Aseprite UI Library
-// Copyright (C) 2018-2022  Igara Studio S.A.
+// Copyright (C) 2018-2023  Igara Studio S.A.
 // Copyright (C) 2001-2017  David Capello
 //
 // This file is released under the terms of the MIT license.
@@ -70,8 +70,8 @@ public:
 
 protected:
 
-  void onClick(Event& ev) override {
-    ButtonBase::onClick(ev);
+  void onClick() override {
+    ButtonBase::onClick();
     closeWindow();
   }
 
@@ -335,8 +335,12 @@ void Window::centerWindow(Display* parentDisplay)
   if (m_isAutoRemap)
     remapWindow();
 
-  if (!parentDisplay)
-    parentDisplay = manager()->getDefault()->display();
+  if (!parentDisplay) {
+    if (m_parentDisplay)
+      parentDisplay = m_parentDisplay;
+    else
+      parentDisplay = manager()->getDefault()->display();
+  }
 
   ASSERT(parentDisplay);
 
@@ -649,6 +653,8 @@ void Window::onInvalidateRegion(const gfx::Region& region)
 void Window::onResize(ResizeEvent& ev)
 {
   windowSetPosition(ev.bounds());
+  // Fire Resize signal
+  Resize(ev);
 }
 
 void Window::onSizeHint(SizeHintEvent& ev)
@@ -731,6 +737,8 @@ void Window::onBuildTitleLabel()
 
 void Window::windowSetPosition(const gfx::Rect& rect)
 {
+  m_isResizing = (bounds().size() != rect.size());
+
   // Copy the new position rectangle
   setBoundsQuietly(rect);
   Rect cpos = childrenBounds();
@@ -744,6 +752,7 @@ void Window::windowSetPosition(const gfx::Rect& rect)
   }
 
   onWindowResize();
+  m_isResizing = false;
 }
 
 void Window::limitSize(int* w, int* h)

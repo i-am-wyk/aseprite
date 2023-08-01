@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2018-2022  Igara Studio S.A.
+// Copyright (C) 2018-2023  Igara Studio S.A.
 // Copyright (C) 2001-2018  David Capello
 //
 // This program is distributed under the terms of
@@ -162,6 +162,19 @@ class OptionsWindow : public app::gen::Options {
 
     std::string m_path;
     std::string m_name;
+  };
+
+  class LangItem : public ListItem {
+  public:
+    LangItem(const LangInfo& langInfo)
+      : ListItem(langInfo.displayName)
+      , m_langInfo(langInfo) {
+    }
+    const std::string& langId() const {
+      return m_langInfo.id;
+    }
+  private:
+    LangInfo m_langInfo;
   };
 
   class ExtensionItem : public ListItem {
@@ -327,7 +340,7 @@ public:
     if (m_pref.general.dataRecovery())
       enableDataRecovery()->setSelected(true);
     enableDataRecovery()->Click.connect(
-      [this](Event&){
+      [this](){
         const bool state = enableDataRecovery()->isSelected();
         keepEditedSpriteData()->setEnabled(state);
         keepEditedSpriteData()->setSelected(state);
@@ -427,13 +440,13 @@ public:
         loadWintabDriver2()->setSelected(false);
       }
 
-      tabletApiWindowsPointer()->Click.connect([this](Event&){ onTabletAPIChange(); });
-      tabletApiWintabSystem()->Click.connect([this](Event&){ onTabletAPIChange(); });
-      tabletApiWintabDirect()->Click.connect([this](Event&){ onTabletAPIChange(); });
+      tabletApiWindowsPointer()->Click.connect([this](){ onTabletAPIChange(); });
+      tabletApiWintabSystem()->Click.connect([this](){ onTabletAPIChange(); });
+      tabletApiWintabDirect()->Click.connect([this](){ onTabletAPIChange(); });
       loadWintabDriver()->Click.connect(
-        [this](Event&){ onLoadWintabChange(loadWintabDriver()->isSelected()); });
+        [this](){ onLoadWintabChange(loadWintabDriver()->isSelected()); });
       loadWintabDriver2()->Click.connect(
-        [this](Event&){ onLoadWintabChange(loadWintabDriver2()->isSelected()); });
+        [this](){ onLoadWintabChange(loadWintabDriver2()->isSelected()); });
     }
 #else  // For macOS and Linux
     {
@@ -484,10 +497,21 @@ public:
       gridScope()->Change.connect([this]{ onChangeGridScope(); });
     }
 
+    // Update the one/multiple window buttonset (and keep in on sync
+    // with the old/experimental checkbox)
+    uiWindows()->setSelectedItem(multipleWindows()->isSelected() ? 1: 0);
+    uiWindows()->ItemChange.connect([this]() {
+      multipleWindows()->setSelected(uiWindows()->selectedItem() == 1);
+    });
+    multipleWindows()->Click.connect([this](){
+      uiWindows()->setSelectedItem(multipleWindows()->isSelected() ? 1: 0);
+    });
+
+    // Scaling
     selectScalingItems();
 
-#ifdef _DEBUG // TODO enable this on Release when Aseprite supports
-              //      GPU-acceleration properly
+#ifdef ENABLE_DEVMODE // TODO enable this on Release when Aseprite supports
+                      //      GPU-acceleration properly
     if (os::instance()->hasCapability(os::Capabilities::GpuAccelerationSwitch)) {
       gpuAcceleration()->setSelected(m_pref.general.gpuAcceleration());
     }
@@ -630,8 +654,9 @@ public:
 #endif
 
     // Update language
-    Strings::instance()->setCurrentLanguage(
-      language()->getItemText(language()->getSelectedItemIndex()));
+    if (auto item = dynamic_cast<const LangItem*>(language()->getSelectedItem())) {
+      Strings::instance()->setCurrentLanguage(item->langId());
+    }
 
     m_globPref.timeline.firstFrame(firstFrame()->textInt());
     m_pref.general.showFullPath(showFullPath()->isSelected());
@@ -743,7 +768,10 @@ public:
     update_windows_color_profile_from_preferences();
 
     // Change sprite grid bounds
-    if (m_context && m_context->activeDocument()) {
+    if (m_context &&
+        m_context->activeDocument() &&
+        m_context->activeDocument()->sprite() &&
+        m_context->activeDocument()->sprite()->gridBounds() != gridBounds()) {
       ContextWriter writer(m_context);
       Tx tx(m_context, Strings::commands_GridSettings(), ModifyDocument);
       tx(new cmd::SetGridBounds(writer.sprite(), gridBounds()));
@@ -942,6 +970,8 @@ private:
       m_themeVars->deferDelete();
     }
     m_themeVars = list;
+    themeVariants()->setVisible(list ? true: false);
+    themeVariants()->initTheme();
   }
 
   void fillExtensionsCombobox(ui::ComboBox* combobox,
@@ -1269,11 +1299,12 @@ private:
     if (language()->getItemCount() > 0)
       return;
 
+    // Select current language by lang ID
     Strings* strings = Strings::instance();
     std::string curLang = strings->currentLanguage();
-    for (const std::string& lang : strings->availableLanguages()) {
-      int i = language()->addItem(lang);
-      if (lang == curLang)
+    for (const LangInfo& lang : strings->availableLanguages()) {
+      int i = language()->addItem(new LangItem(lang));
+      if (lang.id == curLang)
         language()->setSelectedItemIndex(i);
     }
   }
